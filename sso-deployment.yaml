@@ -1,0 +1,148 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: sso
+  name: sso
+  namespace: sso-reencrypt
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sso
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: sso
+    spec:
+      initContainers:
+      - image: registry.redhat.io/rh-sso-7/sso76-openshift-rhel8:7.6-25
+        name: build-certs
+        volumeMounts:
+        - name: service-certs
+          mountPath: /var/run/secrets/openshift.io/services_serving_certs
+        - name: service-ca-bundle
+          mountPath: /var/run/secrets/openshift.io/service_ca_bundle
+        - name: user-ca-bundle
+          mountPath: /var/run/secrets/openshift.io/user_ca_bundle
+        - name: keystore-volume
+          mountPath: /var/run/secrets/java.io/keystores
+        envFrom:
+        - configMapRef:
+            name: sso-cm
+        - secretRef:
+            name: sso-secret
+        env:
+        - name: serv_key
+          value: /var/run/secrets/openshift.io/services_serving_certs/tls.key
+        - name: serv_crt
+          value: /var/run/secrets/openshift.io/services_serving_certs/tls.crt
+        - name: keystore_pkcs12
+          value: /var/run/secrets/java.io/keystores/keystore.pkcs12
+        - name: serv_ca
+          value: /var/run/secrets/openshift.io/service_ca_bundle/service-ca.crt
+        - name: user_ca
+          value: /var/run/secrets/openshift.io/user_ca_bundle/ca-bundle.crt
+        - name: comp_ca
+          value: /var/run/secrets/java.io/keystores/complete-ca-bundle.crt
+        imagePullPolicy: Always
+        command: ['/bin/bash']
+        args: ['-c', "cat $serv_ca >> $comp_ca && cat $user_ca >> $comp_ca && openssl pkcs12 -export -inkey $serv_key -in $serv_crt -name $HTTPS_NAME -out $keystore_pkcs12 -password pass:$HTTPS_PASSWORD && keytool -importkeystore -noprompt -srckeystore $keystore_pkcs12 -srcstoretype pkcs12 -destkeystore $HTTPS_KEYSTORE_DIR/$HTTPS_KEYSTORE -storepass $HTTPS_PASSWORD -srcstorepass $HTTPS_PASSWORD -alias $HTTPS_NAME -destalias $HTTPS_NAME && csplit -z -f crt- $comp_ca '/-----BEGIN CERTIFICATE-----/' '{*}' && for file in crt-*; do keytool -import -noprompt -keystore $SSO_TRUSTSTORE_DIR/$SSO_TRUSTSTORE -file $file -storepass $SSO_TRUSTSTORE_PASSWORD -alias service-$file; done && keytool -genseckey -alias $JGROUPS_ENCRYPT_NAME -storetype JCEKS -storepass $JGROUPS_ENCRYPT_PASSWORD -keypass $JGROUPS_ENCRYPT_PASSWORD -noprompt -keyalg Blowfish -keysize 56 -keystore $JGROUPS_ENCRYPT_KEYSTORE_DIR/$JGROUPS_ENCRYPT_KEYSTORE"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+            - ALL
+      containers:
+      - image: registry.redhat.io/rh-sso-7/sso76-openshift-rhel8:7.6-25
+        name: sso
+        env:
+        - name: DB_MIN_POOL_SIZE
+        - name: DB_MAX_POOL_SIZE
+        - name: DB_TX_ISOLATION
+        - name: HTTPS_KEYSTORE_TYPE
+        - name: SSO_SERVICE_USERNAME
+        - name: SSO_SERVICE_PASSWORD
+        envFrom:
+        - configMapRef:
+            name: sso-cm
+        - secretRef:
+            name: sso-secret
+        imagePullPolicy: Always
+        livenessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - /opt/eap/bin/livenessProbe.sh
+          failureThreshold: 3
+          initialDelaySeconds: 60
+          successThreshold: 1
+          periodSeconds: 10
+          timeoutSeconds: 1
+        ports:
+        - containerPort: 8778
+          name: jolokia
+          protocol: TCP
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        - containerPort: 8443
+          name: https
+          protocol: TCP
+        - containerPort: 8888
+          name: ping
+          protocol: TCP
+        readinessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - /opt/eap/bin/readinessProbe.sh
+          failureThreshold: 3
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            memory: 1Gi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - name: keystore-volume
+          mountPath: /var/run/secrets/java.io/keystores
+        - mountPath: /mnt/rh-sso
+          name: sso-probe-netrc-volume
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+            - ALL
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      terminationGracePeriodSeconds: 75
+      volumes:
+      - name: service-certs
+        secret:
+          secretName: sso-service
+      - name: user-ca-bundle
+        configMap:
+          name: user-ca-bundle
+      - name: service-ca-bundle
+        configMap:
+          name: service-ca-bundle
+      - name: keystore-volume
+        emptyDir: {}
+      - emptyDir:
+          medium: Memory
+        name: sso-probe-netrc-volume
+status: {}

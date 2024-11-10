@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/instance: sso
+  name: sso-cm
+  namespace: sso-reencrypt
+data:
+  DB_JNDI: java:jboss/datasources/KeycloakDS
+  DB_SERVICE_PREFIX_MAPPING: sso-postgresql=DB
+  HTTPS_KEYSTORE: keystore.jks
+  HTTPS_KEYSTORE_DIR: /var/run/secrets/java.io/keystores
+  HTTPS_NAME: jboss
+  JGROUPS_ENCRYPT_KEYSTORE: jgroups.jceks
+  JGROUPS_ENCRYPT_KEYSTORE_DIR: /var/run/secrets/java.io/keystores
+  JGROUPS_ENCRYPT_NAME: jgroups
+  JGROUPS_PING_PROTOCOL: openshift.DNS_PING
+  OPENSHIFT_DNS_PING_SERVICE_NAME: sso-ping
+  OPENSHIFT_DNS_PING_SERVICE_PORT: "8888"
+  SSO_ADMIN_USERNAME: admin
+  SSO_REALM: test-realm
+  TX_DATABASE_PREFIX_MAPPING: sso-postgresql=DB
+  SSO_TRUSTSTORE: truststore.jks
+  SSO_TRUSTSTORE_DIR: /var/run/secrets/java.io/keystores
